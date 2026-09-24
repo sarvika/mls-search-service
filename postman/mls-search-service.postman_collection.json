@@ -1,0 +1,289 @@
+{
+  "info": {
+    "_postman_id": "9e2654f6-b088-4af0-bc5c-616a1f26b219",
+    "name": "MLS Search Service",
+    "description": "Requests for the MLS Search microservice. Set `baseUrl` to point at a running instance (default http://localhost:8080).\n\n**Local setup:** `docker compose up -d` starts a local PostGIS instance on host port 5434 (see `docker-compose.yml`/`db/init/01-schema.sql`) - 5432/5433 are already used by other local services on this machine. `./gradlew quarkusRun` then boots the app against it.\n\n**No real MLS credentials yet:** ingestion currently pulls from SimplyRETS' public demo account (`simplyrets`/`simplyrets`, configured server-side in `application.properties` via `mls.simplyrets.*`), not MLS Grid - real Houston-area trial listings, not synthetic data. Swap to a paid account or MLS Grid later without changing this collection.\n\n**Flow:** run \"Ingest from SimplyRETS (demo data)\" first to populate PostGIS, then the search requests below will return real results. The bbox variable defaults (`west`/`south`/`east`/`north`) cover the Houston metro area, matching where the SimplyRETS demo data is actually located - the \"Search - empty bbox\" request uses a New York bbox specifically to demonstrate the spatial filter excluding out-of-range listings.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "ingestLimit",
+      "value": "25",
+      "type": "string",
+      "description": "Max listings pulled from SimplyRETS per ingestion call"
+    },
+    {
+      "key": "west",
+      "value": "-96.0",
+      "type": "string",
+      "description": "Houston metro bbox - matches where the SimplyRETS demo data actually is"
+    },
+    {
+      "key": "south",
+      "value": "29.4",
+      "type": "string"
+    },
+    {
+      "key": "east",
+      "value": "-95.0",
+      "type": "string"
+    },
+    {
+      "key": "north",
+      "value": "30.2",
+      "type": "string"
+    },
+    {
+      "key": "radiusLat",
+      "value": "29.689418",
+      "type": "string",
+      "description": "Coordinates of demo listing 49699701, for the radius search example"
+    },
+    {
+      "key": "radiusLng",
+      "value": "-95.474464",
+      "type": "string"
+    },
+    {
+      "key": "radiusMeters",
+      "value": "8047",
+      "type": "string",
+      "description": "~5 miles"
+    }
+  ],
+  "item": [
+    {
+      "name": "Listings",
+      "item": [
+        {
+          "name": "Ingest from SimplyRETS (demo data)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings/ingest/simplyrets?limit={{ingestLimit}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings", "ingest", "simplyrets"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "{{ingestLimit}}"
+                }
+              ]
+            },
+            "description": "Pulls up to `limit` listings from the SimplyRETS demo feed and upserts them into PostGIS (insert or update on `(mls_source, listing_key)`). Run this before the search requests below."
+          },
+          "response": [
+            {
+              "name": "Ingest from SimplyRETS (demo data) - Example",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/listings/ingest/simplyrets?limit=25",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["listings", "ingest", "simplyrets"],
+                  "query": [{ "key": "limit", "value": "25" }]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"ingested\": 25\n}"
+            }
+          ]
+        },
+        {
+          "name": "Search by bounding box (Houston demo data)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings?west={{west}}&south={{south}}&east={{east}}&north={{north}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings"],
+              "query": [
+                { "key": "west", "value": "{{west}}" },
+                { "key": "south", "value": "{{south}}" },
+                { "key": "east", "value": "{{east}}" },
+                { "key": "north", "value": "{{north}}" }
+              ]
+            },
+            "description": "Bounding-box search against PostGIS (`geog && ST_MakeEnvelope(...)` pre-filter + `ST_Intersects` exact check, using the GiST index on `listings.geog`). Only returns `is_active = true` rows."
+          },
+          "response": [
+            {
+              "name": "Search by bounding box - Example (Houston, real demo data)",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/listings?west=-96.0&south=29.4&east=-95.0&north=30.2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["listings"],
+                  "query": [
+                    { "key": "west", "value": "-96.0" },
+                    { "key": "south", "value": "29.4" },
+                    { "key": "east", "value": "-95.0" },
+                    { "key": "north", "value": "30.2" }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "[\n  {\n    \"listingKey\": \"49699701\",\n    \"unparsedAddress\": \"74434 East Sweet Bottom Br #18393\",\n    \"city\": \"Houston\",\n    \"stateOrProvince\": \"Texas\",\n    \"listPrice\": 20714261.00,\n    \"bedroomsTotal\": 2,\n    \"bathroomsFull\": 8,\n    \"bathroomsHalf\": 0,\n    \"latitude\": 29.689418,\n    \"longitude\": -95.474464\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Search - empty bbox (out-of-range sanity check)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings?west=-74.5&south=40.4&east=-73.5&north=41.0",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings"],
+              "query": [
+                { "key": "west", "value": "-74.5" },
+                { "key": "south", "value": "40.4" },
+                { "key": "east", "value": "-73.5" },
+                { "key": "north", "value": "41.0" }
+              ]
+            },
+            "description": "A New York bbox against Houston-only demo data - should always return `[]`. Useful as a quick check that the spatial filter is actually filtering, not just returning every row."
+          },
+          "response": [
+            {
+              "name": "Search - empty bbox - Example",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/listings?west=-74.5&south=40.4&east=-73.5&north=41.0",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["listings"],
+                  "query": [
+                    { "key": "west", "value": "-74.5" },
+                    { "key": "south", "value": "40.4" },
+                    { "key": "east", "value": "-73.5" },
+                    { "key": "north", "value": "41.0" }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "[]"
+            }
+          ]
+        },
+        {
+          "name": "Search by radius (5 miles around a known listing)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings/radius?lat={{radiusLat}}&lng={{radiusLng}}&radiusMeters={{radiusMeters}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings", "radius"],
+              "query": [
+                { "key": "lat", "value": "{{radiusLat}}" },
+                { "key": "lng", "value": "{{radiusLng}}" },
+                { "key": "radiusMeters", "value": "{{radiusMeters}}" }
+              ]
+            },
+            "description": "Radius search via `ST_DWithin(geog, ST_MakePoint(lng, lat)::geography, radiusMeters)` - true great-circle distance, GiST-index-aware. `radiusMeters` is in meters (8047m ≈ 5 miles). Default lat/lng is demo listing 49699701's own location, so this example is guaranteed to match at least that listing."
+          },
+          "response": [
+            {
+              "name": "Search by radius - Example",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/listings/radius?lat=29.689418&lng=-95.474464&radiusMeters=8047",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["listings", "radius"],
+                  "query": [
+                    { "key": "lat", "value": "29.689418" },
+                    { "key": "lng", "value": "-95.474464" },
+                    { "key": "radiusMeters", "value": "8047" }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "[\n  {\n    \"listingKey\": \"49699701\",\n    \"unparsedAddress\": \"74434 East Sweet Bottom Br #18393\",\n    \"city\": \"Houston\",\n    \"stateOrProvince\": \"Texas\",\n    \"listPrice\": 20714261.0,\n    \"bedroomsTotal\": 2,\n    \"bathroomsFull\": 8,\n    \"bathroomsHalf\": 0,\n    \"latitude\": 29.689418,\n    \"longitude\": -95.474464\n  },\n  {\n    \"listingKey\": \"97392864\",\n    \"unparsedAddress\": \"172 North British Colony Boulevard #27\",\n    \"city\": \"Oak Ridge\",\n    \"stateOrProvince\": \"Texas\",\n    \"listPrice\": 9014063.0,\n    \"bedroomsTotal\": 4,\n    \"bathroomsFull\": 7,\n    \"bathroomsHalf\": 1,\n    \"latitude\": 29.689418,\n    \"longitude\": -95.474464\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Search by drawn polygon",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"Polygon\",\n  \"coordinates\": [[[-96.0, 29.4], [-95.0, 29.4], [-95.0, 30.2], [-96.0, 30.2], [-96.0, 29.4]]]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/listings/polygon",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings", "polygon"]
+            },
+            "description": "Drawn polygon / geofence search - the body is a raw GeoJSON `Polygon` geometry (e.g. what a map-drawing UI like Mapbox GL Draw emits directly), not a full Feature/FeatureCollection wrapper. Uses `ST_Contains(ST_SetSRID(ST_GeomFromGeoJSON(body), 4326), geog::geometry)` - point-in-polygon, since listings are points. The example polygon covers the same Houston bbox used above."
+          },
+          "response": [
+            {
+              "name": "Search by drawn polygon - Example",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"Polygon\",\n  \"coordinates\": [[[-96.0, 29.4], [-95.0, 29.4], [-95.0, 30.2], [-96.0, 30.2], [-96.0, 29.4]]]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/listings/polygon",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["listings", "polygon"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "[\n  {\n    \"listingKey\": \"49699701\",\n    \"unparsedAddress\": \"74434 East Sweet Bottom Br #18393\",\n    \"city\": \"Houston\",\n    \"stateOrProvince\": \"Texas\",\n    \"listPrice\": 20714261.0,\n    \"bedroomsTotal\": 2,\n    \"bathroomsFull\": 8,\n    \"bathroomsHalf\": 0,\n    \"latitude\": 29.689418,\n    \"longitude\": -95.474464\n  }\n]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

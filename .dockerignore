@@ -1,0 +1,7 @@
+# Dockerfile.jvm now compiles inside Docker (multi-stage) and needs gradlew, the build
+# files, gradle/, and src/ in the context - only exclude local build output and VCS cruft
+# that shouldn't be sent to the daemon at all.
+.git
+build/
+.gradle-cache/
+.gradle/
